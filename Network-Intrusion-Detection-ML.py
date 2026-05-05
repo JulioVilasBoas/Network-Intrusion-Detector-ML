@@ -1,4 +1,4 @@
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 columns = [
     'duration','protocol_type','service','flag','src_bytes',
     'dst_bytes','land','wrong_fragment','urgent','hot',
@@ -43,24 +44,34 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled  = scaler.transform(X_test)
 
+model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
+model_rf.fit(X_train_scaled, y_train)
+
 X_normal = X_train_scaled[y_train == 0]
+model_if = IsolationForest(contamination=0.4, random_state=42)
+model_if.fit(X_normal)
 
-model = IsolationForest(contamination=0.4, random_state=42)
-model.fit(X_normal)
+y_hybrid = model_rf.predict(X_test_scaled)
 
-y_pred = model.predict(X_test_scaled)
-y_pred_converted = np.where(y_pred == 1, 0, 1)
+probas = model_rf.predict_proba(X_test_scaled)
+normal_confidence = probas[:, 0]
 
-print(classification_report(y_test, y_pred_converted,
+uncertain_normal = (y_hybrid == 0) & (normal_confidence < 0.95)
+
+if_predictions = model_if.predict(X_test_scaled[uncertain_normal])
+if_predictions_converted = np.where(if_predictions == 1, 0, 1)
+
+y_hybrid[uncertain_normal] = if_predictions_converted
+
+print(classification_report(y_test, y_hybrid,
       target_names=['Normal', 'Suspect'],
       digits=4))
 
-cm = confusion_matrix(y_test, y_pred_converted)
-
+cm = confusion_matrix(y_test, y_hybrid)
 sns.heatmap(cm, annot=True, fmt='d',
             xticklabels=['Normal', 'Suspect'],
             yticklabels=['Normal', 'Suspect'])
 plt.title('Confusion Matrix')
 plt.ylabel('Real')
-plt.xlabel('Predict')
+plt.xlabel('Predicted')
 plt.show()
